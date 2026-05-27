@@ -13,6 +13,8 @@
 
     <extensions defaultExtensionNs="org.jetbrains.plugins.cucumber.steps">
         <cucumberJvmExtensionPoint implementation="net.lagerwey.plugins.cucumber.kotlin.CucumberKotlinLambdaExtension"/>
+        <cucumberJvmExtensionPoint
+                implementation="net.lagerwey.plugins.cucumber.kotlin.CucumberKotlinAnnotationExtension"/>
     </extensions>
 
     <extensions defaultExtensionNs="org.jetbrains.kotlin">
@@ -21,6 +23,7 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <fileBasedIndex implementation="net.lagerwey.plugins.cucumber.kotlin.CucumberKotlinLambdaStepIndex"/>
+        <fileBasedIndex implementation="net.lagerwey.plugins.cucumber.kotlin.CucumberKotlinAnnotationStepIndex"/>
 
         <pom.declarationSearcher implementation="net.lagerwey.plugins.cucumber.kotlin.search.StepDeclarationSearcher"/>
 

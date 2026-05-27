@@ -21,8 +21,8 @@ object CucumberKotlinUtil {
 
     fun isStepDefinition(candidate: PsiElement): Boolean {
         return when (candidate) {
-            is KtCallExpression -> isStepDefinition(candidate)
             is KtAnnotationEntry -> isStepDefinition(candidate)
+            is KtCallExpression -> isStepDefinition(candidate)
             is KtUserType -> isStepDefinition(candidate)
             else -> false
         }

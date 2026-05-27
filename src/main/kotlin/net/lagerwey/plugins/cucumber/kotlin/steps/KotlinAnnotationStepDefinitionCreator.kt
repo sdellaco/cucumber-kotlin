@@ -1,8 +1,11 @@
 package net.lagerwey.plugins.cucumber.kotlin.steps
 
+import com.intellij.codeInsight.template.TemplateBuilderFactory
 import com.intellij.openapi.application.runWriteAction
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDirectory
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import org.jetbrains.kotlin.idea.base.util.module
 import org.jetbrains.kotlin.idea.core.getPackage
@@ -14,27 +17,22 @@ import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.resolve.ImportPath
 import org.jetbrains.plugins.cucumber.AbstractStepDefinitionCreator
-import org.jetbrains.plugins.cucumber.psi.GherkinFile
 import org.jetbrains.plugins.cucumber.psi.GherkinStep
 import java.util.*
 
-class KotlinLambdaStepDefinitionCreator : AbstractStepDefinitionCreator() {
+class KotlinAnnotationStepDefinitionCreator : AbstractStepDefinitionCreator() {
     private var lastObservedLanguage = "en"
 
     override fun createStepDefinitionContainer(directory: PsiDirectory, name: String): PsiFile {
         val file = runWriteAction { directory.createFile("$name.kt") } as KtFile
         val ktPsiFactory = KtPsiFactory(file.project, markGenerated = true)
         val psiPackage = directory.getPackage()?.qualifiedName
-        val apiClassName =
-            lastObservedLanguage.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
         val importDirective =
-            ktPsiFactory.createImportDirective(ImportPath.fromString("io.cucumber.java8.$apiClassName"))
+            ktPsiFactory.createImportDirective(ImportPath.fromString("io.cucumber.java.$lastObservedLanguage.*"))
         val newLines = ktPsiFactory.createNewLine(2)
         val ktClass = ktPsiFactory.createClass(
             """
-            class $name : $apiClassName {
-                init {
-                }
+            class $name {
             }
             """.trimIndent()
         )
@@ -71,19 +69,38 @@ class KotlinLambdaStepDefinitionCreator : AbstractStepDefinitionCreator() {
         val ktClass = ktFile.declarations.firstNotNullOfOrNull { it as? KtClassOrObject } ?: return false
         val initializer =
             (ktClass.declarations.firstOrNull { it is KtClassInitializer } as? KtClassInitializer)?.body as? KtBlockExpression
+        val functionName = "stepName"
         val expression = ktPsiFactory.createExpression(
             """
-            ${step.keyword.text}("${step.name.replace("\"", "\\\"")}") {
+            @${step.keyword.text}("${step.name.replace("\"", "\\\"")}")
+            fun ${functionName}(): Unit {
                 TODO("Not yet implemented")
             }
             """.trimIndent()
         )
 
-        runWriteAction {
+        val addedElement = runWriteAction {
             initializer?.addElement(expression)
-        }
+        } ?: return false
 
         ktFile.navigate(true)
+
+        if (withTemplate) {
+            val editor = FileEditorManager.getInstance(file.project).selectedTextEditor ?: return true
+
+            PsiDocumentManager.getInstance(file.project).doPostponedOperationsAndUnblockDocument(editor.document)
+
+            val addedFunction = addedElement as? KtNamedFunction
+                ?: (addedElement as? KtBlockExpression)?.statements?.filterIsInstance<KtNamedFunction>()?.lastOrNull()
+                ?: return true
+
+            val nameIdentifier = addedFunction.nameIdentifier ?: return true
+
+            val builder = TemplateBuilderFactory.getInstance().createTemplateBuilder(addedFunction)
+            builder.replaceElement(nameIdentifier, functionName)
+            builder.run(editor, true)
+        }
+
         return true
     }
 
@@ -122,6 +139,3 @@ class KotlinLambdaStepDefinitionCreator : AbstractStepDefinitionCreator() {
         return dir
     }
 }
-
-val GherkinStep.localeLanguage: String
-    get() = (this.containingFile as GherkinFile).localeLanguage

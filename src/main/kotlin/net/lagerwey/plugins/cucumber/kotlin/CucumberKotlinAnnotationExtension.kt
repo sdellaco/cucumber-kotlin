@@ -15,22 +15,22 @@ import com.intellij.psi.search.UsageSearchContext
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.util.indexing.FileBasedIndex
 import groovy.json.StringEscapeUtils
-import net.lagerwey.plugins.cucumber.kotlin.steps.KotlinLambdaStepDefinition
-import net.lagerwey.plugins.cucumber.kotlin.steps.KotlinLambdaStepDefinitionCreator
+import net.lagerwey.plugins.cucumber.kotlin.steps.KotlinAnnotationStepDefinition
+import net.lagerwey.plugins.cucumber.kotlin.steps.KotlinAnnotationStepDefinitionCreator
 import net.lagerwey.plugins.cucumber.kotlin.steps.KotlinParameterTypeManager
 import org.jetbrains.kotlin.idea.KotlinFileType
-import org.jetbrains.kotlin.idea.references.KtInvokeFunctionReference
-import org.jetbrains.kotlin.psi.KtCallExpression
+import org.jetbrains.kotlin.psi.KtAnnotationEntry
+import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 import org.jetbrains.plugins.cucumber.BDDFrameworkType
 import org.jetbrains.plugins.cucumber.StepDefinitionCreator
 import org.jetbrains.plugins.cucumber.steps.AbstractStepDefinition
 
-class CucumberKotlinLambdaExtension : AbstractCucumberKotlinExtension() {
+class CucumberKotlinAnnotationExtension : AbstractCucumberKotlinExtension() {
 
     override fun getStepFileType() = BDDFrameworkType(KotlinFileType.INSTANCE)
 
-    override fun getStepDefinitionCreator(): StepDefinitionCreator = KotlinLambdaStepDefinitionCreator()
+    override fun getStepDefinitionCreator(): StepDefinitionCreator = KotlinAnnotationStepDefinitionCreator()
 
     override fun loadStepsFor(featureFile: PsiFile?, module: Module): MutableList<AbstractStepDefinition> {
         val fileBasedIndex = FileBasedIndex.getInstance()
@@ -40,7 +40,7 @@ class CucumberKotlinLambdaExtension : AbstractCucumberKotlinExtension() {
             .uniteWith(ProjectScope.getLibrariesScope(project))
         val kotlinFiles = GlobalSearchScope.getScopeRestrictedByFileTypes(searchScope, KotlinFileType.INSTANCE)
 
-        val elements = mutableListOf<KtCallExpression>()
+        val elements = mutableListOf<KtAnnotationEntry>()
         fileBasedIndex.processValues(
             INDEX_ID,
             true,
@@ -50,7 +50,7 @@ class CucumberKotlinLambdaExtension : AbstractCucumberKotlinExtension() {
                 PsiManager.getInstance(project).findFile(file)?.let { psiFile ->
                     offsets.forEach { offset ->
                         val element = psiFile.findElementAt(offset + 1)
-                        PsiTreeUtil.getParentOfType(element, KtCallExpression::class.java)?.let { stepElement ->
+                        PsiTreeUtil.getParentOfType(element, KtAnnotationEntry::class.java)?.let { stepElement ->
                             elements.add(stepElement)
                         }
                     }
@@ -64,9 +64,7 @@ class CucumberKotlinLambdaExtension : AbstractCucumberKotlinExtension() {
 
         return elements.mapNotNull { stepElement ->
             if (CucumberKotlinUtil.isStepDefinition(stepElement)) {
-                stepElement.references.firstOrNull { it is KtInvokeFunctionReference }?.let {
-                    KotlinLambdaStepDefinition(stepElement)
-                }
+                KotlinAnnotationStepDefinition(stepElement)
             } else null
         }.toMutableList()
     }
@@ -74,10 +72,8 @@ class CucumberKotlinLambdaExtension : AbstractCucumberKotlinExtension() {
     private fun findParameterTypes(module: Module, kotlinFiles: GlobalSearchScope) {
         val occurrencesProcessor: (PsiElement, Int) -> Boolean = { element, _ ->
             element.parent?.let { parent ->
-                parent.references.forEach { ref ->
-                    if (ref is KtInvokeFunctionReference) {
-                        handleParameterType(parent)
-                    }
+                if (parent is KtAnnotationEntry) {
+                    handleParameterType(parent)
                 }
             }
             true
@@ -104,13 +100,34 @@ class CucumberKotlinLambdaExtension : AbstractCucumberKotlinExtension() {
         runCatching {
             val pointer = SmartPointerManager.getInstance(element.project).createSmartPsiElementPointer(element)
 
-            val callExpression = element as? KtCallExpression
+            val callExpression = element as? KtAnnotationEntry
             callExpression?.let {
-                val name = (it.valueArguments[0].getArgumentExpression() as KtStringTemplateExpression).entries[0].text
-                val regex =
-                    (it.valueArguments[1].getArgumentExpression() as KtStringTemplateExpression).entries.joinToString("") { x -> x.text }
+                // "value" is the default attribute - may be unnamed (positional)
+                val regexExpr =
+                    it.valueArgumentList?.arguments?.firstOrNull { arg ->
+                        val argName = arg.getArgumentName()?.asName?.asString()
+                        argName == "value" || argName == null
+                    }?.getArgumentExpression()
+                regexExpr ?: return@let println("No regex argument: ${element.text}")
+                val regex = (regexExpr as KtStringTemplateExpression).entries.joinToString("") { x -> x.text }
+
+                // "name" is optional - fall back to the annotated method's name
+                val nameExpr =
+                    it.valueArgumentList?.arguments?.firstOrNull { arg ->
+                        arg.getArgumentName()?.asName?.asString() == "name"
+                    }?.getArgumentExpression()
+                val name = if (nameExpr != null) {
+                    (nameExpr as KtStringTemplateExpression).entries[0].text
+                } else {
+                    // Fall back to the name of the function the annotation is on
+                    PsiTreeUtil.getParentOfType(it, KtNamedFunction::class.java)?.name
+                        ?: return@let println("No name for parameter type: ${element.text}")
+                }
+
                 val unescapedRegex = StringEscapeUtils.unescapeJava(regex)
                 KotlinParameterTypeManager.addParameterType(name, unescapedRegex, pointer)
+            } ?: run {
+                println("Not a call expression: ${element.text}") // TODO: Remove debug output
             }
         }
     }
