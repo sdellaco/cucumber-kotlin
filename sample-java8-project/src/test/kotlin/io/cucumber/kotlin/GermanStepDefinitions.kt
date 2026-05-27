@@ -16,9 +16,9 @@ class GermanStepDefinitions : De {
             Assertions.assertEquals(42, i)
             Assertions.assertEquals("hello", localState)
         }
-        
+
         Dann("ich habe wirklich {stringList} Gurken in meinem Bauch") { strings: List<String> ->
-            Assertions.assertEquals(listOf("foo","bar"), strings)
+            Assertions.assertEquals(listOf("foo", "bar"), strings)
         }
 
     }
