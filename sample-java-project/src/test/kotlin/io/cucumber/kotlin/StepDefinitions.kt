@@ -12,8 +12,8 @@ class StepDefinitions {
         Child, Adult, Retiree
     }
 
-    @ParameterType("(an? )?(child|adult|retiree)")
-    fun ageGroup(article: String, s: String): AgeGroup {
+    @ParameterType("(child|adult|retiree)")
+    fun ageGroup(s: String): AgeGroup {
         return AgeGroup.entries.first { it.name.equals(s, ignoreCase = true) }
     }
 
@@ -48,7 +48,7 @@ class StepDefinitions {
         Assertions.assertTrue(Regex("\\w{1,3}\\d+").matches(regex))
     }
 
-    @Given("I am {ageGroup} and {employment-status}")
+    @Given("I am a(n) {ageGroup} and {employment-status}")
     fun assertGender(ageGroup: AgeGroup, employmentStatus: EmploymentStatus) {
         Assertions.assertEquals(ageGroup, AgeGroup.Adult)
         Assertions.assertEquals(employmentStatus, EmploymentStatus.SelfEmployed)
